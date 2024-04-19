@@ -13,7 +13,6 @@ if(BUILD_BENCHMARK)
 FetchContent_Declare(
   googlebenchmark
   GIT_REPOSITORY https://github.com/google/benchmark.git
-
   GIT_TAG        bc946b919cac6f25a199a526da571638cfde109f
   FIND_PACKAGE_ARGS NAMES benchmark
 )

@@ -7,7 +7,6 @@
 //
 //
 constexpr auto MAX_TASK_NUM = 20;
-
 constexpr auto TASK_NUM = 10;
 constexpr auto OPS_NUM = 1000000;
 
