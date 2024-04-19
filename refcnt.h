@@ -207,8 +207,20 @@ public:
   ref_ptr(IObject *obj) : obj(obj) { assert(obj); }
   ref_ptr(const ref_ptr &r) : obj(r.obj) { obj->cnt()->ref(); }
 
+  ref_ptr(ref_ptr &&o) noexcept {
+    obj = o.obj;
+    o.obj = nullptr;
+  }
+  ref_ptr &operator=(ref_ptr &&o) noexcept {
+    obj = o.obj;
+    o.obj = nullptr;
+  }
+
   operator bool() const { return obj != nullptr; }
-  ~ref_ptr() { obj->cnt()->deref(); }
+  ~ref_ptr() {
+    if (obj)
+      obj->cnt()->deref();
+  }
 };
 
 template <typename T> class obs_ptr {
@@ -217,7 +229,25 @@ public:
 
   obs_ptr(ref_ptr<T> ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
 
-  ref_ptr<T> lock() { return ref_ptr<T>(cnt->object()); }
+  obs_ptr(obs_ptr &&o) noexcept {
+    cnt = o.cnt;
+    o.cnt = nullptr;
+  }
 
-  ~obs_ptr() { cnt->weak_deref(); }
+  obs_ptr &operator=(obs_ptr &&o) noexcept {
+    cnt = o.cnt;
+    o.cnt = nullptr;
+  }
+
+  ref_ptr<T> lock() {
+    if (cnt)
+      return ref_ptr<T>(cnt->object());
+    return nullptr;
+  }
+
+  ~obs_ptr() {
+    if (cnt) {
+      cnt->weak_deref();
+    }
+  }
 };
