@@ -5,8 +5,11 @@
 #include <mutex>
 #include <random>
 //
-constexpr auto OPS_NUM = 1000000;
+//
+constexpr auto MAX_TASK_NUM = 20;
+
 constexpr auto TASK_NUM = 10;
+constexpr auto OPS_NUM = 1000000;
 constexpr auto LOOP_NUM = 1000;
 
 // constexpr auto OPS_NUM = 10;

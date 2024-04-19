@@ -50,6 +50,13 @@ public:
   ~SpinLock() { unlock(); }
 };
 
+class EmptyLock {
+public:
+  void lock() {}
+  bool try_lock() { return true; }
+  void unlock() {}
+};
+
 class AllocImpl : public IAlloc {
 public:
   void dealloc(void *ptr) override { return; }
@@ -134,7 +141,6 @@ public:
               m_objectBuffer);
       return objectWrapper->object();
     }
-    lk.unlock();
     --m_cnt;
     return nullptr;
   }
@@ -152,10 +158,14 @@ private:
       sizeof(ObjectWrapper<ManagedObjectType, AllocatorType>) / sizeof(size_t);
   ;
   size_t m_objectBuffer[BUFSIZE];
-  EObjectState m_objectState{EObjectState::UNINITIALIZED};
 
-  using Lock = std::mutex;
-  std::mutex m_mtx;
+  using Lock = EmptyLock;
+  Lock m_mtx;
+  std::atomic<EObjectState> m_objectState;
+  // EObjectState m_objectState{EObjectState::UNINITIALIZED};
+
+  // using Lock = std::mutex;
+  // std::mutex m_mtx;
   // SpinLock m_mtx;
   // using Lock = SpinLock;
 };
@@ -177,7 +187,9 @@ ObjectType *NEW(AllocatorType *alloc, Args &&...args) {
 
 class IObject {
 public:
-  IObject(IRefCnt *cnt) : _cnt(cnt) {}
+  using CntType = RefCntImpl<IObject, AllocImpl>;
+
+  IObject(CntType *cnt) : _cnt(cnt) {}
   void operator delete(void *ptr) { delete[] reinterpret_cast<uint8_t *>(ptr); }
   template <typename ObjectAllocatorType>
   void operator delete(void *ptr, ObjectAllocatorType &allocator,
@@ -195,10 +207,10 @@ public:
     return allocator.alloc(size);
   }
 
-  IRefCnt *cnt() const { return _cnt; }
+  CntType *cnt() const { return _cnt; }
 
 private:
-  IRefCnt *_cnt;
+  CntType *_cnt;
 };
 
 template <typename T> class ref_ptr {
@@ -206,7 +218,6 @@ public:
   T *obj{nullptr};
   ref_ptr(IObject *obj) : obj(obj) { assert(obj); }
   ref_ptr(const ref_ptr &r) : obj(r.obj) { obj->cnt()->ref(); }
-
   ref_ptr(ref_ptr &&o) noexcept {
     obj = o.obj;
     o.obj = nullptr;
@@ -215,7 +226,6 @@ public:
     obj = o.obj;
     o.obj = nullptr;
   }
-
   operator bool() const { return obj != nullptr; }
   ~ref_ptr() {
     if (obj)
@@ -225,26 +235,21 @@ public:
 
 template <typename T> class obs_ptr {
 public:
-  IRefCnt *cnt{nullptr};
-
+  typename T::CntType *cnt{nullptr};
   obs_ptr(ref_ptr<T> ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
-
   obs_ptr(obs_ptr &&o) noexcept {
     cnt = o.cnt;
     o.cnt = nullptr;
   }
-
   obs_ptr &operator=(obs_ptr &&o) noexcept {
     cnt = o.cnt;
     o.cnt = nullptr;
   }
-
   ref_ptr<T> lock() {
     if (cnt)
       return ref_ptr<T>(cnt->object());
     return nullptr;
   }
-
   ~obs_ptr() {
     if (cnt) {
       cnt->weak_deref();
