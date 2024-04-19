@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <mutex>
 
@@ -67,7 +68,7 @@ template <typename ManagedObjectType, typename AllocatorType>
 class RefCntImpl final : public IRefCnt {
   template <typename ObjectType, typename Allocator> friend class VNew;
 
-  enum class EObjectState { UNINITIALIZED, ALIVE, DESTROYED };
+  enum class EObjectState : uint8_t { UNINITIALIZED, ALIVE, DESTROYED };
   template <typename ObjectType, typename Allocator> class ObjectWrapper {
   public:
     ObjectWrapper(ObjectType *obj, Allocator *allocator)
@@ -151,8 +152,11 @@ private:
     static_assert(sizeof(std::atomic_int) == sizeof(int));
   }
 
-  std::atomic_size_t m_cnt = {1};
-  std::atomic_size_t m_weakCnt = {0};
+  // std::atomic_size_t m_cnt = {1};
+  // std::atomic_size_t m_weakCnt = {0};
+
+  std::atomic_uint m_cnt = {1};
+  std::atomic_uint m_weakCnt = {0};
 
   static size_t constexpr BUFSIZE =
       sizeof(ObjectWrapper<ManagedObjectType, AllocatorType>) / sizeof(size_t);
@@ -187,7 +191,8 @@ ObjectType *NEW(AllocatorType *alloc, Args &&...args) {
 
 class IObject {
 public:
-  using CntType = RefCntImpl<IObject, AllocImpl>;
+  using CntType = RefCntImpl<IObject, AllocImpl>; // devirtualize
+  // using CntType = IRefCnt;
 
   IObject(CntType *cnt) : _cnt(cnt) {}
   void operator delete(void *ptr) { delete[] reinterpret_cast<uint8_t *>(ptr); }
@@ -216,7 +221,9 @@ private:
 template <typename T> class ref_ptr {
 public:
   T *obj{nullptr};
-  ref_ptr(IObject *obj) : obj(obj) { assert(obj); }
+  ref_ptr(IObject *obj) : obj(obj) {
+    assert(obj);
+  } // assume obj is not null and ref is called
   ref_ptr(const ref_ptr &r) : obj(r.obj) { obj->cnt()->ref(); }
   ref_ptr(ref_ptr &&o) noexcept {
     obj = o.obj;
@@ -236,7 +243,7 @@ public:
 template <typename T> class obs_ptr {
 public:
   typename T::CntType *cnt{nullptr};
-  obs_ptr(ref_ptr<T> ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
+  obs_ptr(const ref_ptr<T> &ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
   obs_ptr(obs_ptr &&o) noexcept {
     cnt = o.cnt;
     o.cnt = nullptr;
@@ -245,7 +252,7 @@ public:
     cnt = o.cnt;
     o.cnt = nullptr;
   }
-  ref_ptr<T> lock() {
+  ref_ptr<T> lock() const noexcept {
     if (cnt)
       return ref_ptr<T>(cnt->object());
     return nullptr;
