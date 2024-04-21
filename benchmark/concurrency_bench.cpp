@@ -83,7 +83,7 @@ public:
 BENCHMARK_DEFINE_F(ConcurrencyBench, ref_ptr)(benchmark::State &st) {
 
   auto my_ptr = ref_ptr<IObject>(
-      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl>>(nullptr));
+      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl, IObject>>(nullptr));
 
   const auto task_num = st.range(0);
   for (auto _ : st) {

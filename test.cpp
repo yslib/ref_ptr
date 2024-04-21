@@ -84,7 +84,8 @@ int main() {
   thread_pool pool(MAX_TASK_NUM);
 
   auto my_ptr = ref_ptr<IObject>(
-      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl>>(nullptr));
+      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl, IObject>>(
+          nullptr));
 
   auto std_ptr = std::make_shared<A>(A());
 
