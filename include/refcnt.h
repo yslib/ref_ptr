@@ -1,7 +1,6 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
-#include <iostream>
 #include <mutex>
 
 class IObject;
@@ -174,21 +173,6 @@ private:
   // using Lock = SpinLock;
 };
 
-template <typename ObjectType, typename AllocatorType,
-          typename RefCounterType = RefCntImpl<ObjectType, AllocatorType>,
-          typename... Args>
-ObjectType *NEW(AllocatorType *alloc, Args &&...args) {
-  auto refcnt = new RefCounterType();
-  ObjectType *obj = nullptr;
-  if (alloc) {
-    obj = new (*alloc, 0, 0, 0) ObjectType(refcnt, std::forward<Args>(args)...);
-  } else {
-    obj = new ObjectType(refcnt, std::forward<Args>(args)...);
-  }
-  refcnt->init(alloc, obj);
-  return obj;
-}
-
 class IObject {
 public:
   using CntType = RefCntImpl<IObject, AllocImpl>; // devirtualize
@@ -263,3 +247,94 @@ public:
     }
   }
 };
+
+template <typename Base, typename RefCounterType>
+class RefCountedObject : public Base {
+
+  using RefCntType = RefCounterType;
+  using NumberType = RefCounterType::NumberType;
+
+  // Base(RefCntType *c) : _refCnt(c) {}
+
+  RefCountedObject() {
+    auto refcnt = new RefCounterType();
+    refcnt->init(nullptr, this);
+  }
+  NumberType ref() { return this->_refCnt->ref(); };
+  NumberType deref() { return this->_refCnt->deref(); }
+  NumberType ref_count() const { return this->_refCnt->ref_count(); }
+  NumberType weak_ref() { return this->_refCnt->weak_ref(); }
+  NumberType weak_deref() { return this->_refCnt->weak_deref(); }
+  NumberType weak_ref_count() const { return this->_refCnt->weak_ref_count(); }
+  RefCntType *cnt() const { return _refCnt; }
+  Base *object() { return static_cast<Base *>(this->_refCnt->okjbject()); }
+
+protected: // don't allow new the object in ordinary way
+  void operator delete(void *ptr) { delete[] reinterpret_cast<uint8_t *>(ptr); }
+  template <typename ObjectAllocatorType>
+  void operator delete(void *ptr, ObjectAllocatorType &allocator,
+                       const char *dbgDescription, const char *dbgFileName,
+                       const uint32_t dbgLineNumber) {
+    return allocator.dealloc(ptr);
+  }
+
+  void *operator new(size_t size) { return new uint8_t[size]; }
+
+  template <typename ObjectAllocatorType>
+  void *operator new(size_t size, ObjectAllocatorType &allocator,
+                     const char *dbgDescription, const char *dbgFileName,
+                     const uint32_t dbgLineNumber) {
+    return allocator.alloc(size);
+  }
+
+private:
+  RefCntType *_refCnt;
+};
+
+template <typename ObjectType, typename AllocatorType,
+          typename RefCounterType = RefCntImpl<ObjectType, AllocatorType>,
+          typename... Args>
+inline ObjectType *NEW(AllocatorType *alloc, Args &&...args) {
+  auto refcnt = new RefCounterType();
+  ObjectType *obj = nullptr;
+  if (alloc) {
+    obj = new (*alloc, 0, 0, 0) ObjectType(refcnt, std::forward<Args>(args)...);
+  } else {
+    obj = new ObjectType(refcnt, std::forward<Args>(args)...);
+  }
+  refcnt->init(alloc, obj);
+  return obj;
+}
+
+template <typename ObjectType, typename AllocatorType, typename RefCounterType,
+          typename... Args>
+inline ObjectType *vm_make(AllocatorType *alloc, Args &&...args) {
+  auto refcnt = new RefCounterType();
+  ObjectType *obj = nullptr;
+  if (alloc) {
+    obj = new (*alloc, 0, 0, 0) ObjectType(refcnt, std::forward<Args>(args)...);
+  } else {
+    obj = new ObjectType(refcnt, std::forward<Args>(args)...);
+  }
+  refcnt->init(alloc, obj);
+  return obj;
+}
+
+template <typename ObjectType, typename AllocatorType, typename RefCounterType,
+          typename... Args>
+inline ref_ptr<ObjectType> vm_make_ptr(AllocatorType *alloc, Args &&...args) {
+  return ref_ptr<ObjectType>(vm_make(alloc, std::forward<Args>(args)...));
+}
+
+// user define
+
+template <typename T, typename... Args> inline T *make_ptr(Args &&...args) {
+  return vm_make<T, AllocImpl, RefCntImpl<T, AllocImpl>>(
+      nullptr, std::forward<Args>(args)...);
+}
+
+template <typename T, typename... Args>
+inline ref_ptr<T> make_ref(Args &&...args) {
+  return vm_make_ptr<T, AllocImpl, RefCntImpl<T, AllocImpl>>(
+      nullptr, std::forward<Args>(args)...);
+}

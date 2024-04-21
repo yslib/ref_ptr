@@ -6,7 +6,7 @@
 #include <random>
 
 constexpr auto MAX_TASK_NUM = 20;
-constexpr auto TASK_NUM = 10;
+constexpr auto TASK_NUM = 20;
 constexpr auto OPS_NUM = 1000000;
 
 template <typename T, typename U> struct Task {
@@ -52,12 +52,10 @@ template <typename T, typename U> struct Task {
   }
 };
 
-class ConcurrencyBench : public benchmark::Fixture {
-public:
+struct TaskOps {
   thread_pool pool{MAX_TASK_NUM};
   std::vector<std::vector<int>> tasks_ops{TASK_NUM};
-
-  void SetUp(::benchmark::State &state) {
+  TaskOps() {
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
     std::default_random_engine generator(seed);
     std::uniform_int_distribution<int> distribution(0, 4);
@@ -68,7 +66,17 @@ public:
       }
     }
   }
+};
 
+TaskOps *init() {
+  static TaskOps data;
+  return &data;
+}
+
+class ConcurrencyBench : public benchmark::Fixture {
+public:
+  TaskOps *data{nullptr};
+  void SetUp(::benchmark::State &state) { this->data = init(); }
   void TearDown(::benchmark::State &state) {}
 };
 
@@ -76,22 +84,24 @@ BENCHMARK_DEFINE_F(ConcurrencyBench, ref_ptr)(benchmark::State &st) {
 
   auto my_ptr = ref_ptr<IObject>(
       NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl>>(nullptr));
+
+  const auto task_num = st.range(0);
   for (auto _ : st) {
     Timer t;
-    for (auto task_id = 0; task_id < TASK_NUM; task_id++) {
-      pool.append_task(
-          Task<ref_ptr<IObject>, obs_ptr<IObject>>(tasks_ops, my_ptr), task_id);
+    for (auto task_id = 0; task_id < task_num; task_id++) {
+      data->pool.append_task(
+          Task<ref_ptr<IObject>, obs_ptr<IObject>>(data->tasks_ops, my_ptr),
+          task_id);
     }
-    pool.wait();
+    data->pool.wait();
     st.SetIterationTime(t.elapse_s());
   }
 }
-BENCHMARK_REGISTER_F(ConcurrencyBench, ref_ptr)->UseManualTime()->Threads(1);
+BENCHMARK_REGISTER_F(ConcurrencyBench, ref_ptr)
+    ->UseManualTime()
+    ->DenseRange(1, 20, 1);
 
 BENCHMARK_DEFINE_F(ConcurrencyBench, shared_ptr)(benchmark::State &st) {
-
-  auto my_ptr = ref_ptr<IObject>(
-      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl>>(nullptr));
 
   struct A {
     int a;
@@ -101,19 +111,21 @@ BENCHMARK_DEFINE_F(ConcurrencyBench, shared_ptr)(benchmark::State &st) {
   };
 
   auto std_ptr = std::make_shared<A>(A());
+  const auto task_num = st.range(0);
   for (auto _ : st) {
     Timer t;
-    for (auto task_id = 0; task_id < TASK_NUM; task_id++) {
-      pool.append_task(
-          Task<std::shared_ptr<A>, std::weak_ptr<A>>(tasks_ops, std_ptr),
+    for (auto task_id = 0; task_id < task_num; task_id++) {
+      data->pool.append_task(
+          Task<std::shared_ptr<A>, std::weak_ptr<A>>(data->tasks_ops, std_ptr),
           task_id);
     }
-    pool.wait();
+    data->pool.wait();
     st.SetIterationTime(t.elapse_s());
   }
 }
-
-BENCHMARK_REGISTER_F(ConcurrencyBench, shared_ptr)->UseManualTime()->Threads(1);
+BENCHMARK_REGISTER_F(ConcurrencyBench, shared_ptr)
+    ->UseManualTime()
+    ->DenseRange(1, 20, 1);
 
 // Run the benchmark
 BENCHMARK_MAIN();
