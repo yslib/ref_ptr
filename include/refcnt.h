@@ -99,9 +99,9 @@ public:
     m_objectState = EObjectState::ALIVE;
   }
 
-  size_t ref() { return m_cnt++; }
+  size_t ref() override final { return m_cnt++; }
 
-  size_t deref() {
+  size_t deref() override final {
     auto cnt = --m_cnt;
     if (cnt == 0) {
       // 1. delete managed object
@@ -119,10 +119,10 @@ public:
     }
     return cnt;
   }
-  size_t ref_count() const { return m_cnt; }
+  size_t ref_count() const override final { return m_cnt; }
 
-  size_t weak_ref() { return ++m_weakCnt; }
-  size_t weak_deref() {
+  size_t weak_ref() override final { return ++m_weakCnt; }
+  size_t weak_deref() override final {
     auto cnt = --m_weakCnt;
     std::unique_lock<Lock> lk(m_mtx);
     if (cnt == 0 && m_objectState == EObjectState::DESTROYED) {
@@ -131,9 +131,9 @@ public:
     }
     return cnt;
   }
-  size_t weak_ref_count() const { return m_weakCnt; }
+  size_t weak_ref_count() const override final { return m_weakCnt; }
 
-  IObject *object() {
+  IRefCnt<Interface>::object_type *object() override final {
     if (m_objectState != EObjectState::ALIVE)
       return nullptr;
     std::unique_lock<Lock> lk(m_mtx);
