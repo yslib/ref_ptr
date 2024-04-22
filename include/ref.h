@@ -38,7 +38,9 @@ public:
         return;
       }
       while (_lock.load(std::memory_order_relaxed)) {
+#if defined(__x86_64__) || defined(__i386__)
         __builtin_ia32_pause();
+#endif
       }
     }
   }
@@ -98,6 +100,7 @@ class RefCntImpl final : public IRefCnt<Interface> {
 
 public:
   using base_type = IRefCnt<Interface>;
+  using size_type = typename IRefCnt<Interface>::size_type;
   template <typename ManagedObjectType, typename AllocatorType>
   void init(AllocatorType *allocator, ManagedObjectType *obj) {
     new (m_objectBuffer)
@@ -105,9 +108,9 @@ public:
     m_objectState = EObjectState::ALIVE;
   }
 
-  base_type::size_type ref() override final { return m_cnt++; }
+  size_type ref() override final { return m_cnt++; }
 
-  base_type::size_type deref() override final {
+  size_type deref() override final {
     auto cnt = --m_cnt;
     if (cnt == 0) {
       // 1. delete managed object
@@ -123,9 +126,9 @@ public:
     }
     return cnt;
   }
-  base_type::size_type ref_count() const override final { return m_cnt; }
-  base_type::size_type weak_ref() override final { return ++m_weakCnt; }
-  base_type::size_type weak_deref() override final {
+  size_type ref_count() const override final { return m_cnt; }
+  size_type weak_ref() override final { return ++m_weakCnt; }
+  size_type weak_deref() override final {
     auto cnt = --m_weakCnt;
     std::unique_lock<Lock> lk(m_mtx);
     if (cnt == 0 && m_objectState == EObjectState::DESTROYED) {
@@ -134,11 +137,9 @@ public:
     }
     return cnt;
   }
-  base_type::size_type weak_ref_count() const override final {
-    return m_weakCnt;
-  }
+  size_type weak_ref_count() const override final { return m_weakCnt; }
 
-  IRefCnt<Interface>::object_type *object() override final {
+  typename IRefCnt<Interface>::object_type *object() override final {
     if (m_objectState != EObjectState::ALIVE)
       return nullptr;
     std::unique_lock<Lock> lk(m_mtx);
@@ -185,8 +186,8 @@ template <typename T, typename RefCntType = RefCntImpl<T>>
 class RefCountedObject : public T {
 public:
   using refcnt_type = RefCntType;
-  using size_type = RefCntType::size_type;
-  using base_type = RefCntType::object_type;
+  using size_type = typename RefCntType::size_type;
+  using base_type = typename RefCntType::object_type;
   static_assert(std::is_same_v<T, base_type>);
   RefCountedObject(refcnt_type *cnt) { _ref_cnt = cnt; }
 
