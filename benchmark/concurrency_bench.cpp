@@ -1,4 +1,4 @@
-#include "../include/refcnt.h"
+#include "../example.h"
 #include "../utils/thread_pool.h"
 #include "../utils/timer.h"
 
@@ -82,15 +82,15 @@ public:
 
 BENCHMARK_DEFINE_F(ConcurrencyBench, ref_ptr)(benchmark::State &st) {
 
-  auto my_ptr = ref_ptr<IObject>(
-      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl, IObject>>(nullptr));
+  auto my_ptr = make_ref<DerivedObject>();
 
   const auto task_num = st.range(0);
   for (auto _ : st) {
     Timer t;
     for (auto task_id = 0; task_id < task_num; task_id++) {
       data->pool.append_task(
-          Task<ref_ptr<IObject>, obs_ptr<IObject>>(data->tasks_ops, my_ptr),
+          Task<ref_ptr<DerivedObject>, obs_ptr<DerivedObject>>(data->tasks_ops,
+                                                               my_ptr),
           task_id);
     }
     data->pool.wait();

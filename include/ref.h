@@ -1,21 +1,21 @@
+#pragma once
 #include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <mutex>
-
-class IObject;
+#include <type_traits>
 
 template <typename Interface> class IRefCnt {
 public:
   using object_type = Interface;
-  using counter_type = size_t;
+  using size_type = int;
 
-  virtual counter_type ref() = 0;
-  virtual counter_type deref() = 0;
-  virtual counter_type ref_count() const = 0;
-  virtual counter_type weak_ref() = 0;
-  virtual counter_type weak_deref() = 0;
-  virtual counter_type weak_ref_count() const = 0;
+  virtual size_type ref() = 0;
+  virtual size_type deref() = 0;
+  virtual size_type ref_count() const = 0;
+  virtual size_type weak_ref() = 0;
+  virtual size_type weak_deref() = 0;
+  virtual size_type weak_ref_count() const = 0;
   virtual Interface *object() = 0;
   virtual ~IRefCnt() = default;
 };
@@ -66,17 +66,21 @@ public:
   void *alloc(size_t size) override { return nullptr; }
 };
 
-template <typename ManagedObjectType, typename AllocatorType,
-          typename Interface>
+template <typename Interface>
 class RefCntImpl final : public IRefCnt<Interface> {
-  template <typename ObjectType, typename Allocator> friend class VNew;
-
   enum class EObjectState : uint8_t { UNINITIALIZED, ALIVE, DESTROYED };
-  template <typename ObjectType, typename Allocator> class ObjectWrapper {
+  class ObjectWrapperBase {
+  public:
+    virtual void destroy() const = 0;
+    virtual Interface *object() = 0;
+  }; // This is used to eliminate the template parameter
+
+  template <typename ObjectType, typename Allocator>
+  class ObjectWrapper final : public ObjectWrapperBase {
   public:
     ObjectWrapper(ObjectType *obj, Allocator *allocator)
         : m_obj(obj), m_allocator(allocator) {}
-    void destroy() const {
+    void destroy() const override final {
       if (m_allocator) {
         m_obj->~ObjectType();
         m_allocator->dealloc(m_obj);
@@ -85,7 +89,7 @@ class RefCntImpl final : public IRefCnt<Interface> {
       }
     }
 
-    ObjectType *object() { return m_obj; }
+    ObjectType *object() override final { return m_obj; }
 
   private:
     ObjectType *const m_obj = nullptr;
@@ -93,23 +97,23 @@ class RefCntImpl final : public IRefCnt<Interface> {
   };
 
 public:
+  using base_type = IRefCnt<Interface>;
+  template <typename ManagedObjectType, typename AllocatorType>
   void init(AllocatorType *allocator, ManagedObjectType *obj) {
     new (m_objectBuffer)
         ObjectWrapper<ManagedObjectType, AllocatorType>(obj, allocator);
     m_objectState = EObjectState::ALIVE;
   }
 
-  size_t ref() override final { return m_cnt++; }
+  base_type::size_type ref() override final { return m_cnt++; }
 
-  size_t deref() override final {
+  base_type::size_type deref() override final {
     auto cnt = --m_cnt;
     if (cnt == 0) {
       // 1. delete managed object
 
       std::unique_lock<Lock> lk(m_mtx);
-      auto objWrapper =
-          reinterpret_cast<ObjectWrapper<ManagedObjectType, AllocatorType> *>(
-              m_objectBuffer);
+      auto objWrapper = reinterpret_cast<ObjectWrapperBase *>(m_objectBuffer);
       m_objectState = EObjectState::DESTROYED;
       auto deleteSelf = m_weakCnt.load() == 0;
       lk.unlock();
@@ -119,10 +123,9 @@ public:
     }
     return cnt;
   }
-  size_t ref_count() const override final { return m_cnt; }
-
-  size_t weak_ref() override final { return ++m_weakCnt; }
-  size_t weak_deref() override final {
+  base_type::size_type ref_count() const override final { return m_cnt; }
+  base_type::size_type weak_ref() override final { return ++m_weakCnt; }
+  base_type::size_type weak_deref() override final {
     auto cnt = --m_weakCnt;
     std::unique_lock<Lock> lk(m_mtx);
     if (cnt == 0 && m_objectState == EObjectState::DESTROYED) {
@@ -131,7 +134,9 @@ public:
     }
     return cnt;
   }
-  size_t weak_ref_count() const override final { return m_weakCnt; }
+  base_type::size_type weak_ref_count() const override final {
+    return m_weakCnt;
+  }
 
   IRefCnt<Interface>::object_type *object() override final {
     if (m_objectState != EObjectState::ALIVE)
@@ -141,8 +146,7 @@ public:
     if (m_objectState == EObjectState::ALIVE && cnt > 1) {
       lk.unlock();
       auto objectWrapper =
-          reinterpret_cast<ObjectWrapper<ManagedObjectType, AllocatorType> *>(
-              m_objectBuffer);
+          reinterpret_cast<ObjectWrapperBase *>(m_objectBuffer);
       return objectWrapper->object();
     }
     --m_cnt;
@@ -158,11 +162,11 @@ private:
   // std::atomic_size_t m_cnt = {1};
   // std::atomic_size_t m_weakCnt = {0};
 
-  std::atomic_uint m_cnt = {1};
-  std::atomic_uint m_weakCnt = {0};
+  std::atomic<typename base_type::size_type> m_cnt = {1};
+  std::atomic<typename base_type::size_type> m_weakCnt = {0};
 
   static size_t constexpr BUFSIZE =
-      sizeof(ObjectWrapper<ManagedObjectType, AllocatorType>) / sizeof(size_t);
+      sizeof(ObjectWrapper<Interface, IAlloc>) / sizeof(size_t);
   ;
   size_t m_objectBuffer[BUFSIZE];
 
@@ -177,12 +181,33 @@ private:
   // using Lock = SpinLock;
 };
 
-class IObject {
+template <typename T, typename RefCntType = RefCntImpl<T>>
+class RefCountedObject : public T {
 public:
-  using CntType = RefCntImpl<IObject, AllocImpl, IObject>; // devirtualize
-  // using CntType = IRefCnt;
+  using refcnt_type = RefCntType;
+  using size_type = RefCntType::size_type;
+  using base_type = RefCntType::object_type;
+  static_assert(std::is_same_v<T, base_type>);
+  RefCountedObject(refcnt_type *cnt) { _ref_cnt = cnt; }
 
-  IObject(CntType *cnt) : _cnt(cnt) {}
+  RefCountedObject(const RefCountedObject &) = delete;
+  RefCountedObject &operator=(const RefCountedObject &) = delete;
+
+  RefCountedObject(RefCountedObject &&) noexcept = delete;
+  RefCountedObject &operator=(RefCountedObject &&) noexcept = delete;
+
+  size_type ref() { return this->_ref_cnt->ref(); };
+  size_type deref() { return this->_ref_cnt->deref(); }
+  size_type ref_count() const { return this->_ref_cnt->ref_count(); }
+  size_type weak_ref() { return this->_ref_cnt->weak_ref(); }
+  size_type weak_deref() { return this->_ref_cnt->weak_deref(); }
+  size_type weak_ref_count() const { return this->_ref_cnt->weak_ref_count(); }
+
+  refcnt_type *cnt() const { return _ref_cnt; }
+  base_type *object() {
+    return static_cast<base_type *>(this->_ref_cnt->object());
+  }
+
   void operator delete(void *ptr) { delete[] reinterpret_cast<uint8_t *>(ptr); }
   template <typename ObjectAllocatorType>
   void operator delete(void *ptr, ObjectAllocatorType &allocator,
@@ -200,16 +225,14 @@ public:
     return allocator.alloc(size);
   }
 
-  CntType *cnt() const { return _cnt; }
-
 private:
-  CntType *_cnt;
+  refcnt_type *_ref_cnt{nullptr};
 };
 
 template <typename T> class ref_ptr {
 public:
   T *obj{nullptr};
-  ref_ptr(IObject *obj) : obj(obj) {
+  ref_ptr(T *obj) : obj(obj) {
     assert(obj);
   } // assume obj is not null and ref is called
   ref_ptr(const ref_ptr &r) : obj(r.obj) { obj->cnt()->ref(); }
@@ -230,7 +253,7 @@ public:
 
 template <typename T> class obs_ptr {
 public:
-  typename T::CntType *cnt{nullptr};
+  typename T::refcnt_type *cnt{nullptr};
   obs_ptr(const ref_ptr<T> &ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
   obs_ptr(obs_ptr &&o) noexcept {
     cnt = o.cnt;
@@ -241,8 +264,10 @@ public:
     o.cnt = nullptr;
   }
   ref_ptr<T> lock() const noexcept {
-    if (cnt)
-      return ref_ptr<T>(cnt->object());
+    if (cnt) {
+      auto pp = cnt->object();
+      return ref_ptr<T>(static_cast<T *>(pp));
+    }
     return nullptr;
   }
   ~obs_ptr() {
@@ -252,72 +277,8 @@ public:
   }
 };
 
-template <typename RefCounterType>
-class RefCountedObject : public RefCounterType::object_type {
-
-  using ref_counter_type = RefCounterType;
-  using counter_type = RefCounterType::counter_type;
-  using base_type = RefCounterType::object_type;
-
-  RefCountedObject() {
-    _ref_cnt = new RefCounterType();
-    _ref_cnt->init(nullptr, this);
-  }
-
-  counter_type ref() { return this->_ref_cnt->ref(); };
-  counter_type deref() { return this->_ref_cnt->deref(); }
-  counter_type ref_count() const { return this->_ref_cnt->ref_count(); }
-  counter_type weak_ref() { return this->_ref_cnt->weak_ref(); }
-  counter_type weak_deref() { return this->_ref_cnt->weak_deref(); }
-  counter_type weak_ref_count() const {
-    return this->_ref_cnt->weak_ref_count();
-  }
-
-  ref_counter_type *cnt() const { return _ref_cnt; }
-  base_type *object() {
-    return static_cast<base_type *>(this->_ref_cnt->object());
-  }
-
-protected: // don't allow new the object in ordinary way
-  void operator delete(void *ptr) { delete[] reinterpret_cast<uint8_t *>(ptr); }
-  template <typename ObjectAllocatorType>
-  void operator delete(void *ptr, ObjectAllocatorType &allocator,
-                       const char *dbgDescription, const char *dbgFileName,
-                       const uint32_t dbgLineNumber) {
-    return allocator.dealloc(ptr);
-  }
-
-  void *operator new(size_t size) { return new uint8_t[size]; }
-
-  template <typename ObjectAllocatorType>
-  void *operator new(size_t size, ObjectAllocatorType &allocator,
-                     const char *dbgDescription, const char *dbgFileName,
-                     const uint32_t dbgLineNumber) {
-    return allocator.alloc(size);
-  }
-
-private:
-  ref_counter_type *_ref_cnt;
-};
-
-template <
-    typename ObjectType, typename AllocatorType,
-    typename RefCounterType = RefCntImpl<ObjectType, AllocatorType, IObject>,
-    typename... Args>
-inline ObjectType *NEW(AllocatorType *alloc, Args &&...args) {
-  auto refcnt = new RefCounterType();
-  ObjectType *obj = nullptr;
-  if (alloc) {
-    obj = new (*alloc, 0, 0, 0) ObjectType(refcnt, std::forward<Args>(args)...);
-  } else {
-    obj = new ObjectType(refcnt, std::forward<Args>(args)...);
-  }
-  refcnt->init(alloc, obj);
-  return obj;
-}
-
-template <typename ObjectType, typename AllocatorType, typename RefCounterType,
-          typename... Args>
+template <typename ObjectType, typename Interface, typename AllocatorType,
+          typename RefCounterType = RefCntImpl<Interface>, typename... Args>
 inline ObjectType *vm_make(AllocatorType *alloc, Args &&...args) {
   auto refcnt = new RefCounterType();
   ObjectType *obj = nullptr;
@@ -330,23 +291,10 @@ inline ObjectType *vm_make(AllocatorType *alloc, Args &&...args) {
   return obj;
 }
 
-template <typename ObjectType, typename AllocatorType, typename RefCounterType,
-          typename... Args>
+template <typename ObjectType, typename Interface, typename AllocatorType,
+          typename RefCounterType = RefCntImpl<Interface>, typename... Args>
 inline ref_ptr<ObjectType> vm_make_ptr(AllocatorType *alloc, Args &&...args) {
-  return ref_ptr<ObjectType>(vm_make(alloc, std::forward<Args>(args)...));
-}
-
-//
-
-// user define
-
-template <typename T, typename... Args> inline T *make_ptr(Args &&...args) {
-  return vm_make<T, AllocImpl, RefCntImpl<T, AllocImpl, IObject>>(
-      nullptr, std::forward<Args>(args)...);
-}
-
-template <typename T, typename... Args>
-inline ref_ptr<T> make_ref(Args &&...args) {
-  return vm_make_ptr<T, AllocImpl, RefCntImpl<T, AllocImpl, IObject>>(
-      nullptr, std::forward<Args>(args)...);
+  return ref_ptr<ObjectType>(
+      vm_make<ObjectType, Interface, AllocatorType, RefCounterType>(
+          alloc, std::forward<Args>(args)...));
 }

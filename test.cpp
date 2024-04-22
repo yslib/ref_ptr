@@ -1,11 +1,10 @@
-#include "include/refcnt.h"
+#include "example.h"
+#include "include/ref.h"
 #include "utils/thread_pool.h"
 #include <chrono>
 #include <iostream>
-#include <mutex>
 #include <random>
-//
-//
+
 constexpr auto MAX_TASK_NUM = 20;
 constexpr auto TASK_NUM = 10;
 constexpr auto OPS_NUM = 1000000;
@@ -83,9 +82,7 @@ int main() {
 
   thread_pool pool(MAX_TASK_NUM);
 
-  auto my_ptr = ref_ptr<IObject>(
-      NEW<IObject, AllocImpl, RefCntImpl<IObject, AllocImpl, IObject>>(
-          nullptr));
+  auto my_ptr = make_ref<DerivedObject>();
 
   auto std_ptr = std::make_shared<A>(A());
 
@@ -102,8 +99,9 @@ int main() {
   {
     Timer t("ref_ptr");
     for (auto task_id = 0; task_id < TASK_NUM; task_id++) {
-      pool.append_task(
-          Task<ref_ptr<IObject>, obs_ptr<IObject>>(tasks_ops, my_ptr), task_id);
+      pool.append_task(Task<ref_ptr<DerivedObject>, obs_ptr<DerivedObject>>(
+                           tasks_ops, my_ptr),
+                       task_id);
     }
     pool.wait();
   }
