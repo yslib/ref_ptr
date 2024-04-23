@@ -98,6 +98,7 @@ BENCHMARK_DEFINE_F(ConcurrencyBench, ref_ptr)(benchmark::State &st) {
   }
 }
 BENCHMARK_REGISTER_F(ConcurrencyBench, ref_ptr)
+    ->Name("ref_ptr")
     ->UseManualTime()
     ->DenseRange(1, 20, 1);
 
@@ -124,6 +125,7 @@ BENCHMARK_DEFINE_F(ConcurrencyBench, shared_ptr)(benchmark::State &st) {
   }
 }
 BENCHMARK_REGISTER_F(ConcurrencyBench, shared_ptr)
+    ->Name("shared_ptr")
     ->UseManualTime()
     ->DenseRange(1, 20, 1);
 
