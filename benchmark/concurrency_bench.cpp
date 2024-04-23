@@ -9,6 +9,19 @@ constexpr auto MAX_TASK_NUM = 20;
 constexpr auto TASK_NUM = 20;
 constexpr auto OPS_NUM = 1000000;
 
+struct A {
+  int a;
+  int b;
+  int c;
+  float d;
+};
+
+using RefPtr = ref_ptr<DerivedObject>;
+using ObsPtr = obs_ptr<DerivedObject>;
+
+using SharedPtr = std::shared_ptr<A>;
+using WeakPtr = std::weak_ptr<A>;
+
 template <typename T, typename U> struct Task {
   const std::vector<std::vector<int>> &tasks_ops;
   T ref;
@@ -73,61 +86,31 @@ TaskOps *init() {
   return &data;
 }
 
-class ConcurrencyBench : public benchmark::Fixture {
-public:
-  TaskOps *data{nullptr};
-  void SetUp(::benchmark::State &state) { this->data = init(); }
-  void TearDown(::benchmark::State &state) {}
-};
-
-BENCHMARK_DEFINE_F(ConcurrencyBench, ref_ptr)(benchmark::State &st) {
-
-  auto my_ptr = make_ref<DerivedObject>();
-
+template <typename StrongPtrType, typename WeakPtrType>
+void BM_Concurrency(benchmark::State &st, StrongPtrType ptr) {
+  auto data = init();
   const auto task_num = st.range(0);
   for (auto _ : st) {
     Timer t;
     for (auto task_id = 0; task_id < task_num; task_id++) {
       data->pool.append_task(
-          Task<ref_ptr<DerivedObject>, obs_ptr<DerivedObject>>(data->tasks_ops,
-                                                               my_ptr),
-          task_id);
+          Task<StrongPtrType, WeakPtrType>(data->tasks_ops, ptr), task_id);
     }
     data->pool.wait();
     st.SetIterationTime(t.elapse_s());
   }
 }
-BENCHMARK_REGISTER_F(ConcurrencyBench, ref_ptr)
+
+BENCHMARK_TEMPLATE2_CAPTURE(BM_Concurrency, RefPtr, ObsPtr, ref_ptr,
+                            make_ref<DerivedObject>())
     ->Name("ref_ptr")
     ->UseManualTime()
-    ->DenseRange(1, 20, 1);
+    ->DenseRange(1, 20);
 
-BENCHMARK_DEFINE_F(ConcurrencyBench, shared_ptr)(benchmark::State &st) {
-
-  struct A {
-    int a;
-    int b;
-    int c;
-    float d;
-  };
-
-  auto std_ptr = std::make_shared<A>(A());
-  const auto task_num = st.range(0);
-  for (auto _ : st) {
-    Timer t;
-    for (auto task_id = 0; task_id < task_num; task_id++) {
-      data->pool.append_task(
-          Task<std::shared_ptr<A>, std::weak_ptr<A>>(data->tasks_ops, std_ptr),
-          task_id);
-    }
-    data->pool.wait();
-    st.SetIterationTime(t.elapse_s());
-  }
-}
-BENCHMARK_REGISTER_F(ConcurrencyBench, shared_ptr)
+BENCHMARK_TEMPLATE2_CAPTURE(BM_Concurrency, SharedPtr, WeakPtr, shared_ptr,
+                            make_shared<A>())
     ->Name("shared_ptr")
     ->UseManualTime()
-    ->DenseRange(1, 20, 1);
+    ->DenseRange(1, 20);
 
-// Run the benchmark
 BENCHMARK_MAIN();
