@@ -62,12 +62,6 @@ public:
   void unlock() {}
 };
 
-class AllocImpl : public IAlloc {
-public:
-  void dealloc(void *ptr) override { return; }
-  void *alloc(size_t size) override { return nullptr; }
-};
-
 template <typename Interface>
 class RefCntImpl final : public IRefCnt<Interface> {
   enum class EObjectState : uint8_t { UNINITIALIZED, ALIVE, DESTROYED };
@@ -81,21 +75,21 @@ class RefCntImpl final : public IRefCnt<Interface> {
   class ObjectWrapper final : public ObjectWrapperBase {
   public:
     ObjectWrapper(ObjectType *obj, Allocator *allocator)
-        : m_obj(obj), m_allocator(allocator) {}
+        : _obj(obj), _alloc(allocator) {}
     void destroy() const override final {
-      if (m_allocator) {
-        m_obj->~ObjectType();
-        m_allocator->dealloc(m_obj);
+      if (_alloc) {
+        _obj->~ObjectType();
+        _alloc->dealloc(_obj);
       } else {
-        delete m_obj;
+        delete _obj;
       }
     }
 
-    ObjectType *object() override final { return m_obj; }
+    ObjectType *object() override final { return _obj; }
 
   private:
-    ObjectType *const m_obj = nullptr;
-    Allocator *const m_allocator = nullptr;
+    ObjectType *const _obj = nullptr;
+    Allocator *const _alloc = nullptr;
   };
 
 public:
@@ -103,22 +97,22 @@ public:
   using size_type = typename IRefCnt<Interface>::size_type;
   template <typename ManagedObjectType, typename AllocatorType>
   void init(AllocatorType *allocator, ManagedObjectType *obj) {
-    new (m_objectBuffer)
+    new (_object_buf)
         ObjectWrapper<ManagedObjectType, AllocatorType>(obj, allocator);
-    m_objectState = EObjectState::ALIVE;
+    _object_state = EObjectState::ALIVE;
   }
 
-  size_type ref() override final { return m_cnt++; }
+  size_type ref() override final { return _cnt++; }
 
   size_type deref() override final {
-    auto cnt = --m_cnt;
+    auto cnt = --_cnt;
     if (cnt == 0) {
       // 1. delete managed object
 
-      std::unique_lock<Lock> lk(m_mtx);
-      auto objWrapper = reinterpret_cast<ObjectWrapperBase *>(m_objectBuffer);
-      m_objectState = EObjectState::DESTROYED;
-      auto deleteSelf = m_weakCnt.load() == 0;
+      std::unique_lock<Lock> lk(_mtx);
+      auto objWrapper = reinterpret_cast<ObjectWrapperBase *>(_object_buf);
+      _object_state = EObjectState::DESTROYED;
+      auto deleteSelf = _weak_cnt.load() == 0;
       lk.unlock();
       objWrapper->destroy();
       if (deleteSelf)
@@ -126,31 +120,30 @@ public:
     }
     return cnt;
   }
-  size_type ref_count() const override final { return m_cnt; }
-  size_type weak_ref() override final { return ++m_weakCnt; }
+  size_type ref_count() const override final { return _cnt; }
+  size_type weak_ref() override final { return ++_weak_cnt; }
   size_type weak_deref() override final {
-    auto cnt = --m_weakCnt;
-    std::unique_lock<Lock> lk(m_mtx);
-    if (cnt == 0 && m_objectState == EObjectState::DESTROYED) {
+    auto cnt = --_weak_cnt;
+    std::unique_lock<Lock> lk(_mtx);
+    if (cnt == 0 && _object_state == EObjectState::DESTROYED) {
       lk.unlock();
       destroy();
     }
     return cnt;
   }
-  size_type weak_ref_count() const override final { return m_weakCnt; }
+  size_type weak_ref_count() const override final { return _weak_cnt; }
 
   typename IRefCnt<Interface>::object_type *object() override final {
-    if (m_objectState != EObjectState::ALIVE)
+    if (_object_state != EObjectState::ALIVE)
       return nullptr;
-    std::unique_lock<Lock> lk(m_mtx);
-    auto cnt = ++m_cnt;
-    if (m_objectState == EObjectState::ALIVE && cnt > 1) {
+    std::unique_lock<Lock> lk(_mtx);
+    auto cnt = ++_cnt;
+    if (_object_state == EObjectState::ALIVE && cnt > 1) {
       lk.unlock();
-      auto objectWrapper =
-          reinterpret_cast<ObjectWrapperBase *>(m_objectBuffer);
+      auto objectWrapper = reinterpret_cast<ObjectWrapperBase *>(_object_buf);
       return objectWrapper->object();
     }
-    --m_cnt;
+    --_cnt;
     return nullptr;
   }
 
@@ -160,25 +153,25 @@ private:
     static_assert(sizeof(std::atomic_int) == sizeof(int));
   }
 
-  // std::atomic_size_t m_cnt = {1};
-  // std::atomic_size_t m_weakCnt = {0};
+  // std::atomic_size_t _cnt = {1};
+  // std::atomic_size_t _weak_cnt = {0};
 
-  std::atomic<typename base_type::size_type> m_cnt = {1};
-  std::atomic<typename base_type::size_type> m_weakCnt = {0};
+  std::atomic<typename base_type::size_type> _cnt = {1};
+  std::atomic<typename base_type::size_type> _weak_cnt = {0};
 
   static size_t constexpr BUFSIZE =
       sizeof(ObjectWrapper<Interface, IAlloc>) / sizeof(size_t);
   ;
-  size_t m_objectBuffer[BUFSIZE];
+  size_t _object_buf[BUFSIZE];
 
   using Lock = EmptyLock;
-  Lock m_mtx;
-  std::atomic<EObjectState> m_objectState;
-  // EObjectState m_objectState{EObjectState::UNINITIALIZED};
+  Lock _mtx;
+  std::atomic<EObjectState> _object_state;
+  // EObjectState _object_state{EObjectState::UNINITIALIZED};
 
   // using Lock = std::mutex;
-  // std::mutex m_mtx;
-  // SpinLock m_mtx;
+  // std::mutex _mtx;
+  // SpinLock _mtx;
   // using Lock = SpinLock;
 };
 

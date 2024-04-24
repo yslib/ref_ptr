@@ -1,6 +1,12 @@
 #include "../include/ref.h"
 #include <iostream>
 
+class AllocImpl : public IAlloc {
+public:
+  void dealloc(void *ptr) override { return; }
+  void *alloc(size_t size) override { return nullptr; }
+};
+
 // 1. define your base class
 class IObject {
   virtual void foo() = 0;
