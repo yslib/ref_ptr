@@ -4,10 +4,8 @@ project(ref_ptr)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_executable(test)
-target_sources(test PRIVATE test.cpp)
-
 option(BUILD_BENCHMARK "build benchmark using google benchmark" ON)
+option(BUILD_TEST "build test using google test" OFF)
 
 if(BUILD_BENCHMARK)
 FetchContent_Declare(
@@ -23,5 +21,24 @@ FetchContent_MakeAvailable(googlebenchmark)
 add_executable(concurrency_bench)
 target_sources(concurrency_bench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/concurrency_bench.cpp)
 target_link_libraries(concurrency_bench PRIVATE benchmark::benchmark)
+
+endif()
+
+if(BUILD_TEST)
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG        f8d7d77c06936315286eb55f8de22cd23c188571 # tag-1.14.0
+  FIND_PACKAGE_ARGS NAMES GTest
+)
+
+FetchContent_MakeAvailable(googletest)
+
+
+add_executable(test ${CMAKE_CURRENT_SOURCE_DIR}/test/test.cpp)
+target_link_libraries(test GTest::gtest GTest::gtest_main GTest::gmock
+                        GTest::gmock_main)
+include(GoogleTest)
+gtest_discover_tests(test)
 
 endif()
