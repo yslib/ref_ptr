@@ -16,6 +16,8 @@ struct A {
   float d;
 };
 
+int g_object_call_count = 0;
+
 using RefPtr = ref_ptr<DerivedObject>;
 using ObsPtr = obs_ptr<DerivedObject>;
 
@@ -30,8 +32,10 @@ template <typename T, typename U> struct Task {
   void operator()(int task_op_idx) {
     const auto &task_op = tasks_ops[task_op_idx];
     std::vector<T> refv;
+    benchmark::DoNotOptimize(refv);
     refv.reserve(OPS_NUM);
     std::vector<U> obsv;
+    benchmark::DoNotOptimize(obsv);
     obsv.reserve(OPS_NUM);
     for (const auto &op : task_op) {
       switch (op) {
@@ -62,6 +66,8 @@ template <typename T, typename U> struct Task {
         break;
       }
     }
+    benchmark::ClobberMemory();
+
   }
 };
 

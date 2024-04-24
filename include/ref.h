@@ -5,6 +5,8 @@
 #include <mutex>
 #include <type_traits>
 
+#define USE_VIRTUAL_GETTER
+
 template <typename Interface> class IRefCnt {
 public:
   using object_type = Interface;
@@ -67,13 +69,21 @@ class RefCntImpl final : public IRefCnt<Interface> {
   enum class EObjectState : uint8_t { UNINITIALIZED, ALIVE, DESTROYED };
   class ObjectWrapperBase {
   public:
+    using object_fptr_t = void *(*)(ObjectWrapperBase *);
+
     virtual void destroy() const = 0;
+
+#ifdef USE_VIRTUAL_GETTER
     virtual Interface *object() = 0;
+#else
+    object_fptr_t fptr_object;
+#endif
   }; // This is used to eliminate the template parameter
 
   template <typename ObjectType, typename Allocator>
   class ObjectWrapper final : public ObjectWrapperBase {
   public:
+    using object_type = ObjectType;
     ObjectWrapper(ObjectType *obj, Allocator *allocator)
         : _obj(obj), _alloc(allocator) {}
     void destroy() const override final {
@@ -85,21 +95,37 @@ class RefCntImpl final : public IRefCnt<Interface> {
       }
     }
 
+#ifdef USE_VIRTUAL_GETTER
     ObjectType *object() override final { return _obj; }
+#endif
 
-  private:
     ObjectType *const _obj = nullptr;
     Allocator *const _alloc = nullptr;
+
+  private:
   };
 
 public:
+  template <typename WrapperType>
+  static typename WrapperType::object_type *f_object(WrapperType *ctx) {
+    return (typename WrapperType::object_type *)ctx->_obj;
+  };
+
   using base_type = IRefCnt<Interface>;
   using size_type = typename IRefCnt<Interface>::size_type;
   template <typename ManagedObjectType, typename AllocatorType>
   void init(AllocatorType *allocator, ManagedObjectType *obj) {
-    new (_object_buf)
-        ObjectWrapper<ManagedObjectType, AllocatorType>(obj, allocator);
+
+    using wrapper_type = ObjectWrapper<ManagedObjectType, AllocatorType>;
+    new (_object_buf) wrapper_type(obj, allocator);
     _object_state = EObjectState::ALIVE;
+
+#ifndef USE_VIRTUAL_GETTER
+    auto objWrapper = reinterpret_cast<ObjectWrapperBase *>(_object_buf);
+    // replace virtual function by function pointer
+    objWrapper->fptr_object =
+        typename ObjectWrapperBase::object_fptr_t(f_object<wrapper_type>);
+#endif
   }
 
   size_type ref() override final { return _cnt++; }
@@ -140,8 +166,14 @@ public:
     auto cnt = ++_cnt;
     if (_object_state == EObjectState::ALIVE && cnt > 1) {
       lk.unlock();
-      auto objectWrapper = reinterpret_cast<ObjectWrapperBase *>(_object_buf);
+      const auto objectWrapper =
+          reinterpret_cast<ObjectWrapperBase *>(_object_buf);
+#ifdef USE_VIRTUAL_GETTER
       return objectWrapper->object();
+#else
+      return (typename IRefCnt<Interface>::object_type
+                  *)(objectWrapper->fptr_object(objectWrapper));
+#endif
     }
     --_cnt;
     return nullptr;
