@@ -22,12 +22,7 @@ public:
   virtual ~IRefCnt() = default;
 };
 
-class IAlloc {
-public:
-  virtual void dealloc(void *ptr) = 0;
-  virtual void *alloc(size_t size) = 0;
-  virtual ~IAlloc() = default;
-};
+class IAlloc {};
 
 class SpinLock {
 private:
@@ -192,7 +187,7 @@ private:
   std::atomic<typename base_type::size_type> _weak_cnt = {0};
 
   static size_t constexpr BUFSIZE =
-      sizeof(ObjectWrapper<Interface, IAlloc>) / sizeof(size_t);
+      sizeof(ObjectWrapper<Interface, IAlloc *>) / sizeof(size_t);
   ;
   size_t _object_buf[BUFSIZE];
 

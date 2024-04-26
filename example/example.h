@@ -1,10 +1,10 @@
 #include "../include/ref.h"
 #include <iostream>
 
-class AllocImpl : public IAlloc {
+class AllocImpl {
 public:
-  void dealloc(void *ptr) override { return; }
-  void *alloc(size_t size) override { return nullptr; }
+  void dealloc(void *ptr) { return; }
+  void *alloc(size_t size) { return nullptr; }
 };
 
 // 1. define your base class
