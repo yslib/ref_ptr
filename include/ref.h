@@ -22,7 +22,12 @@ public:
   virtual ~IRefCnt() = default;
 };
 
-class IAlloc {};
+class IAlloc {
+public:
+  virtual void *alloc(size_t size) = 0;
+  virtual void dealloc(void *ptr) = 0;
+  virtual ~IAlloc() = default;
+};
 
 class SpinLock {
 private:
@@ -187,7 +192,7 @@ private:
   std::atomic<typename base_type::size_type> _weak_cnt = {0};
 
   static size_t constexpr BUFSIZE =
-      sizeof(ObjectWrapper<Interface, IAlloc *>) / sizeof(size_t);
+      sizeof(ObjectWrapper<Interface, IAlloc>) / sizeof(size_t);
   ;
   size_t _object_buf[BUFSIZE];
 
@@ -253,28 +258,110 @@ private:
 template <typename T> class ref_ptr {
 public:
   T *obj{nullptr};
+  ref_ptr() = default;
+
   ref_ptr(T *obj) : obj(obj) {
     assert(obj);
-  } // assume obj is not null and ref is called
-  ref_ptr(const ref_ptr &r) : obj(r.obj) { obj->cnt()->ref(); }
+  }
+
+  ref_ptr(const ref_ptr &r) : obj(r.obj) { if(obj)obj->cnt()->ref(); }
+
+  ref_ptr &operator=(const ref_ptr &r) {
+    if (obj)
+      obj->cnt()->deref();
+    obj = r.obj;
+    if(obj)
+      obj->cnt()->ref();
+    return *this;
+  }
   ref_ptr(ref_ptr &&o) noexcept {
     obj = o.obj;
     o.obj = nullptr;
   }
   ref_ptr &operator=(ref_ptr &&o) noexcept {
+    if(obj){
+      obj->cnt()->deref();
+    }
     obj = o.obj;
     o.obj = nullptr;
+    return *this;
   }
+
   operator bool() const { return obj != nullptr; }
-  ~ref_ptr() {
-    if (obj)
+
+  const T* operator->() const noexcept { return obj; }
+  T *operator->()noexcept { return obj; }
+
+  const T& operator*() const noexcept{ return *obj; }
+  T &operator*() noexcept{ return *obj; }
+
+  T* get() const noexcept { return obj; }
+  void reset() noexcept {
+    if (obj) {
       obj->cnt()->deref();
+      obj = nullptr;
+    }
   }
+
+  ~ref_ptr() {
+    reset();
+  }
+
 };
+
+template<typename T>
+inline bool operator==(const ref_ptr<T>& lhs, const ref_ptr<T>& rhs){
+  return lhs.get() == rhs.get();
+} // ref_ptr == ref_ptr
+
+template<typename T>
+inline bool operator!=(const ref_ptr<T>& lhs, const ref_ptr<T>& rhs){
+  return !(lhs == rhs);
+} // ref_ptr != ref_ptr
+
+template<typename T>
+inline bool operator==(const ref_ptr<T>& lhs, std::nullptr_t){
+  return lhs.get() == nullptr;
+} // ref_ptr == nullptr
+
+template<typename T>
+inline bool operator!=(const ref_ptr<T>& lhs, std::nullptr_t){
+  return !(lhs == nullptr);
+} // ref_ptr != nullptr
+
+template<typename T>
+inline bool operator==(std::nullptr_t, const ref_ptr<T>& rhs){
+  return nullptr == rhs.get();
+} // nullptr == ref_ptr
+
+template<typename T>
+inline bool operator!=(std::nullptr_t, const ref_ptr<T>& rhs){
+  return !(nullptr == rhs);
+} // nullptr != ref_ptr
+
+template<typename T>
+inline bool operator==(const ref_ptr<T>& lhs, const T * rhs){
+  return lhs.get() == rhs;
+} // ref_ptr == T*
+template<typename T>
+inline bool operator!=(const ref_ptr<T>& lhs, const T * rhs){
+  return !(lhs == rhs);
+} // ref_ptr != T*
+
+template<typename T>
+inline bool operator==(const T * lhs, const ref_ptr<T>& rhs){
+  return lhs == rhs.get();
+} // T* == ref_ptr
+
+template<typename T>
+inline bool operator!=(const T * lhs, const ref_ptr<T>& rhs){
+  return !(lhs == rhs);
+} // T* != ref_ptr
 
 template <typename T> class obs_ptr {
 public:
   typename T::refcnt_type *cnt{nullptr};
+
   obs_ptr(const ref_ptr<T> &ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
   obs_ptr(obs_ptr &&o) noexcept {
     cnt = o.cnt;
@@ -284,6 +371,7 @@ public:
     cnt = o.cnt;
     o.cnt = nullptr;
   }
+
   ref_ptr<T> lock() const noexcept {
     if (cnt) {
       auto pp = cnt->object();

@@ -86,15 +86,27 @@ def all_result(path):
                 json_files.append({label: os.path.join(root, file)})
     return json_files
 
-def benchmark(label):
+
+if __name__ == '__main__':
+    import sys
+    import os
+    import platform
+
+    if len(sys.argv) == 2:
+        if sys.argv[1] == 'summary':
+            show_plot(all_result('bench_result'))
+            exit(0)
+        else:
+            print("Invalid argument: summary|show")
+            exit(1)
+
     # cmake config and build
     os.system('cmake -S . -B build -DCMAKE_BUILD_TYPE=Release')
     os.system('cmake --build build --config Release')
 
     # import cpuinfo # install by pip install py-cpuinfo
     # label = platform.system() + "_" + cpuinfo.get_cpu_info()["brand_raw"].replace(' ', '_')   # compiler info makes more sense
-
-
+    label = platform.system()
     output_filename = os.path.join('bench_result', '{}_result.json'.format(label))
 
     param = "--benchmark_out={} --benchmark_out_format=json --benchmark_time_unit=s".format(output_filename)
@@ -103,25 +115,5 @@ def benchmark(label):
         os.system('build\\Release\\concurrency_bench.exe {}'.format(param))
     else:
         os.system('build/concurrency_bench {}'.format(param))
-    pass
-
-
-if __name__ == '__main__':
-    import sys
-    import os
-    import platform
-
-    if len(sys.argv) >= 2:
-        if sys.argv[1] == 'summary':
-            show_plot(all_result('bench_result'))
-            exit(0)
-        elif sys.argv[1] == 'label':
-            label = sys.argv[2]
-            benchmark(label)
-        else:
-            print("Invalid argument: summary|show")
-            exit(1)
-    else:
-        benchmark(platform.system())
 
     show_plot(all_result('bench_result'))
