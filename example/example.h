@@ -37,7 +37,7 @@ template <typename T, typename... Args> inline T *make_ptr(Args &&...args) {
 
 template <typename T, typename... Args>
 inline ref_ptr<T> make_ref(Args &&...args) {
-  return make_ptr<T>(std::forward<Args>(args)...);
+  return ref_ptr<T>(make_ptr<T>(std::forward<Args>(args)...));
 }
 
 inline void example_test() { auto a = make_ptr<DerivedObject>(); }

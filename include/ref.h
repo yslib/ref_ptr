@@ -250,48 +250,89 @@ private:
   refcnt_type *_ref_cnt{nullptr};
 };
 
+template <typename T> class obs_ptr;
+
 template <typename T> class ref_ptr {
 public:
+  using element_type = T;
   T *obj{nullptr};
-  ref_ptr() = default;
 
-  ref_ptr(T *obj) : obj(obj) { assert(obj); }
+  constexpr ref_ptr() noexcept = default;
 
-  ref_ptr(const ref_ptr &r) : obj(r.obj) {
+  constexpr ref_ptr(std::nullptr_t) noexcept { obj = nullptr; }
+
+  template <typename U> explicit ref_ptr(U *obj) : obj(obj) { assert(obj); }
+
+  template <typename U>
+  explicit ref_ptr(const obs_ptr<U> &r); // defined outside
+
+  ref_ptr(const ref_ptr &r) noexcept : obj(r.obj) {
     if (obj)
       obj->cnt()->ref();
   }
 
-  ref_ptr &operator=(const ref_ptr &r) {
-    if (obj)
-      obj->cnt()->deref();
-    obj = r.obj;
-    if (obj)
+  template <typename U> ref_ptr(const ref_ptr<U> &r) noexcept : obj(r.obj) {
+    if (obj) {
       obj->cnt()->ref();
-    return *this;
+    }
   }
+
   ref_ptr(ref_ptr &&o) noexcept {
     obj = o.obj;
     o.obj = nullptr;
   }
+
+  template <typename U> ref_ptr(ref_ptr<U> &&o) noexcept {
+    obj = o.obj;
+    o.obj = nullptr;
+  }
+
+  ref_ptr &operator=(const ref_ptr &r) noexcept {
+    reset(r.get());
+    return *this;
+  }
+
+  template <typename U> ref_ptr &operator=(const ref_ptr<U> &r) noexcept {
+    reset(r.get());
+    return *this;
+  }
+
   ref_ptr &operator=(ref_ptr &&o) noexcept {
-    if (obj) {
-      obj->cnt()->deref();
-    }
+    reset();
     obj = o.obj;
     o.obj = nullptr;
     return *this;
   }
 
-  operator bool() const { return obj != nullptr; }
+  template <typename U> ref_ptr &operator=(ref_ptr<U> &&o) noexcept {
+    reset();
+    obj = o.obj;
+    o.obj = nullptr;
+    return *this;
+  }
 
-  const T *operator->() const noexcept { return obj; }
-  T *operator->() noexcept { return obj; }
+  explicit operator bool() const noexcept { return get() != nullptr; }
 
-  const T &operator*() const noexcept { return *obj; }
-  T &operator*() noexcept { return *obj; }
+  long use_count() const noexcept {
+    return get() ? obj->cnt()->ref_count() : 0;
+  }
 
-  T *get() const noexcept { return obj; }
+  T *operator->() const noexcept { return get(); }
+
+  T &operator*() const noexcept { return *obj; }
+
+  element_type *get() const noexcept { return obj; }
+
+  template <typename U> void reset(U *p) noexcept {
+    if (obj) {
+      obj->cnt()->deref();
+    }
+    obj = p;
+    if (obj) {
+      obj->cnt()->ref();
+    }
+  }
+
   void reset() noexcept {
     if (obj) {
       obj->cnt()->deref();
@@ -354,30 +395,106 @@ inline bool operator!=(const T *lhs, const ref_ptr<T> &rhs) {
 template <typename T> class obs_ptr {
 public:
   typename T::refcnt_type *cnt{nullptr};
+  using element_type = T;
 
-  obs_ptr(const ref_ptr<T> &ref) : cnt(ref.obj->cnt()) { cnt->weak_ref(); }
+  template <typename U> obs_ptr(const ref_ptr<U> &ref) noexcept {
+    if (ref.obj) {
+      cnt = ref.obj->cnt();
+      cnt->weak_ref();
+    }
+  }
+
+  obs_ptr(const obs_ptr &o) noexcept {
+    if (o.cnt) {
+      cnt = o.cnt;
+      cnt->weak_ref();
+    }
+  }
+
+  template <typename U> obs_ptr(const obs_ptr<U> &o) noexcept {
+    if (o.cnt) {
+      cnt = o.cnt;
+      cnt->weak_ref();
+    }
+  }
+
   obs_ptr(obs_ptr &&o) noexcept {
     cnt = o.cnt;
     o.cnt = nullptr;
   }
-  obs_ptr &operator=(obs_ptr &&o) noexcept {
+
+  template <typename U> obs_ptr(obs_ptr<U> &&o) noexcept {
     cnt = o.cnt;
     o.cnt = nullptr;
   }
 
-  ref_ptr<T> lock() const noexcept {
+  template <typename U> obs_ptr &operator==(const ref_ptr<U> &r) noexcept {
+    reset();
+    if (r) {
+      cnt = r.get().cnt();
+      cnt->weak_ref();
+    }
+  }
+
+  obs_ptr &operator==(const obs_ptr &o) noexcept {
+    reset();
+    if (o.cnt) {
+      cnt = o.cnt;
+      cnt->weak_ref();
+    }
+  }
+
+  template <typename U> obs_ptr &operator==(const obs_ptr<U> &o) noexcept {
+    reset();
+    if (o.cnt) {
+      cnt = o.cnt;
+      cnt->weak_ref();
+    }
+  }
+
+  obs_ptr &operator=(obs_ptr &&o) noexcept {
+    reset();
+    if (o.cnt) {
+      cnt = o.cnt;
+      o.cnt = nullptr;
+    }
+  }
+
+  template <typename U> obs_ptr &operator=(obs_ptr<U> &&o) noexcept {
+    reset();
+    if (o.cnt) {
+      cnt = o.cnt;
+      o.cnt = nullptr;
+    }
+  }
+
+  bool expired() const noexcept { return cnt && cnt->ref_count() > 0; }
+
+  long use_count() const noexcept { return cnt ? cnt->ref_count() : 0; }
+
+  ref_ptr<element_type> lock() const noexcept {
     if (cnt) {
       auto pp = cnt->object();
       return ref_ptr<T>(static_cast<T *>(pp));
     }
     return nullptr;
   }
-  ~obs_ptr() {
+
+  void reset() noexcept {
     if (cnt) {
       cnt->weak_deref();
+      cnt = nullptr;
     }
   }
+
+  ~obs_ptr() { reset(); }
 };
+
+template <typename T>
+template <typename U>
+ref_ptr<T>::ref_ptr(const obs_ptr<U> &r) {
+  *this = r.lock();
+}
 
 template <typename ObjectType, typename Interface, typename AllocatorType,
           typename RefCounterType = RefCntImpl<Interface>, typename... Args>
