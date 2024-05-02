@@ -1,0 +1,28 @@
+Language: Cpp
+BasedOnStyle: Microsoft
+IndentWidth: 4
+AllowAllArgumentsOnNextLine: false
+AllowAllConstructorInitializersOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortBlocksOnASingleLine: All
+BreakTemplateDeclarations: Yes
+BinPackArguments: false
+BinPackParameters: false
+BreakBeforeBraces: Allman
+BreakInheritanceList: BeforeComma
+BreakConstructorInitializers: BeforeComma
+ConstructorInitializerIndentWidth: 2
+ContinuationIndentWidth: 2
+Cpp11BracedListStyle: false
+IndentCaseLabels: true
+PointerAlignment: Left
+SortIncludes: false
+SpaceAfterTemplateKeyword: false
+AlignConsecutiveBitFields: true
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+AlignAfterOpenBracket: AlwaysBreak
+IndentAccessModifiers: false
+...

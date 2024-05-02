@@ -22,12 +22,7 @@ public:
   virtual ~IRefCnt() = default;
 };
 
-class IAlloc {
-public:
-  virtual void *alloc(size_t size) = 0;
-  virtual void dealloc(void *ptr) = 0;
-  virtual ~IAlloc() = default;
-};
+class IAlloc {};
 
 class SpinLock {
 private:
@@ -260,17 +255,18 @@ public:
   T *obj{nullptr};
   ref_ptr() = default;
 
-  ref_ptr(T *obj) : obj(obj) {
-    assert(obj);
-  }
+  ref_ptr(T *obj) : obj(obj) { assert(obj); }
 
-  ref_ptr(const ref_ptr &r) : obj(r.obj) { if(obj)obj->cnt()->ref(); }
+  ref_ptr(const ref_ptr &r) : obj(r.obj) {
+    if (obj)
+      obj->cnt()->ref();
+  }
 
   ref_ptr &operator=(const ref_ptr &r) {
     if (obj)
       obj->cnt()->deref();
     obj = r.obj;
-    if(obj)
+    if (obj)
       obj->cnt()->ref();
     return *this;
   }
@@ -279,7 +275,7 @@ public:
     o.obj = nullptr;
   }
   ref_ptr &operator=(ref_ptr &&o) noexcept {
-    if(obj){
+    if (obj) {
       obj->cnt()->deref();
     }
     obj = o.obj;
@@ -289,13 +285,13 @@ public:
 
   operator bool() const { return obj != nullptr; }
 
-  const T* operator->() const noexcept { return obj; }
-  T *operator->()noexcept { return obj; }
+  const T *operator->() const noexcept { return obj; }
+  T *operator->() noexcept { return obj; }
 
-  const T& operator*() const noexcept{ return *obj; }
-  T &operator*() noexcept{ return *obj; }
+  const T &operator*() const noexcept { return *obj; }
+  T &operator*() noexcept { return *obj; }
 
-  T* get() const noexcept { return obj; }
+  T *get() const noexcept { return obj; }
   void reset() noexcept {
     if (obj) {
       obj->cnt()->deref();
@@ -303,58 +299,55 @@ public:
     }
   }
 
-  ~ref_ptr() {
-    reset();
-  }
-
+  ~ref_ptr() { reset(); }
 };
 
-template<typename T>
-inline bool operator==(const ref_ptr<T>& lhs, const ref_ptr<T>& rhs){
+template <typename T>
+inline bool operator==(const ref_ptr<T> &lhs, const ref_ptr<T> &rhs) {
   return lhs.get() == rhs.get();
 } // ref_ptr == ref_ptr
 
-template<typename T>
-inline bool operator!=(const ref_ptr<T>& lhs, const ref_ptr<T>& rhs){
+template <typename T>
+inline bool operator!=(const ref_ptr<T> &lhs, const ref_ptr<T> &rhs) {
   return !(lhs == rhs);
 } // ref_ptr != ref_ptr
 
-template<typename T>
-inline bool operator==(const ref_ptr<T>& lhs, std::nullptr_t){
+template <typename T>
+inline bool operator==(const ref_ptr<T> &lhs, std::nullptr_t) {
   return lhs.get() == nullptr;
 } // ref_ptr == nullptr
 
-template<typename T>
-inline bool operator!=(const ref_ptr<T>& lhs, std::nullptr_t){
+template <typename T>
+inline bool operator!=(const ref_ptr<T> &lhs, std::nullptr_t) {
   return !(lhs == nullptr);
 } // ref_ptr != nullptr
 
-template<typename T>
-inline bool operator==(std::nullptr_t, const ref_ptr<T>& rhs){
+template <typename T>
+inline bool operator==(std::nullptr_t, const ref_ptr<T> &rhs) {
   return nullptr == rhs.get();
 } // nullptr == ref_ptr
 
-template<typename T>
-inline bool operator!=(std::nullptr_t, const ref_ptr<T>& rhs){
+template <typename T>
+inline bool operator!=(std::nullptr_t, const ref_ptr<T> &rhs) {
   return !(nullptr == rhs);
 } // nullptr != ref_ptr
 
-template<typename T>
-inline bool operator==(const ref_ptr<T>& lhs, const T * rhs){
+template <typename T>
+inline bool operator==(const ref_ptr<T> &lhs, const T *rhs) {
   return lhs.get() == rhs;
 } // ref_ptr == T*
-template<typename T>
-inline bool operator!=(const ref_ptr<T>& lhs, const T * rhs){
+template <typename T>
+inline bool operator!=(const ref_ptr<T> &lhs, const T *rhs) {
   return !(lhs == rhs);
 } // ref_ptr != T*
 
-template<typename T>
-inline bool operator==(const T * lhs, const ref_ptr<T>& rhs){
+template <typename T>
+inline bool operator==(const T *lhs, const ref_ptr<T> &rhs) {
   return lhs == rhs.get();
 } // T* == ref_ptr
 
-template<typename T>
-inline bool operator!=(const T * lhs, const ref_ptr<T>& rhs){
+template <typename T>
+inline bool operator!=(const T *lhs, const ref_ptr<T> &rhs) {
   return !(lhs == rhs);
 } // T* != ref_ptr
 
