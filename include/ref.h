@@ -261,7 +261,7 @@ public:
 
   constexpr ref_ptr(std::nullptr_t) noexcept { obj = nullptr; }
 
-  template <typename U> explicit ref_ptr(U *obj) : obj(obj) { assert(obj); }
+  template <typename U> explicit ref_ptr(U *obj) : obj(obj) {}
 
   template <typename U>
   explicit ref_ptr(const obs_ptr<U> &r); // defined outside
@@ -428,30 +428,6 @@ public:
     o.cnt = nullptr;
   }
 
-  template <typename U> obs_ptr &operator==(const ref_ptr<U> &r) noexcept {
-    reset();
-    if (r) {
-      cnt = r.get().cnt();
-      cnt->weak_ref();
-    }
-  }
-
-  obs_ptr &operator==(const obs_ptr &o) noexcept {
-    reset();
-    if (o.cnt) {
-      cnt = o.cnt;
-      cnt->weak_ref();
-    }
-  }
-
-  template <typename U> obs_ptr &operator==(const obs_ptr<U> &o) noexcept {
-    reset();
-    if (o.cnt) {
-      cnt = o.cnt;
-      cnt->weak_ref();
-    }
-  }
-
   obs_ptr &operator=(obs_ptr &&o) noexcept {
     reset();
     if (o.cnt) {
@@ -468,7 +444,7 @@ public:
     }
   }
 
-  bool expired() const noexcept { return cnt && cnt->ref_count() > 0; }
+  bool expired() const noexcept { return !cnt || cnt->ref_count() <= 0; }
 
   long use_count() const noexcept { return cnt ? cnt->ref_count() : 0; }
 

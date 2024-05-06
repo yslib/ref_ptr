@@ -10,6 +10,7 @@ def get_cpu_info():
         info_str += "{}: {} | ".format(key, value)
     return info_str
 
+
 def get_compiler_info():
     cmake_script = """
     cmake_minimum_required(VERSION 3.0)
@@ -21,10 +22,12 @@ def get_compiler_info():
     with open(temp_filename, 'w') as f:
         f.write(cmake_script)
     import subprocess
-    result = subprocess.run(['cmake', '-S', '.', '-B', 'tmp', '-DCMAKE_PROJECT_INCLUDE=' + temp_filename], stdout=subprocess.PIPE)
+    result = subprocess.run(['cmake', '-S', '.', '-B', 'tmp',
+                            '-DCMAKE_PROJECT_INCLUDE=' + temp_filename], stdout=subprocess.PIPE)
     import os
     os.remove(temp_filename)
     return result.stdout.decode('utf-8')
+
 
 benchmark_item = {
     'real_time': {'marker': '+', 'linestyle': ':'}
@@ -46,7 +49,8 @@ def show_plot(filenames):
             for item in bench:
                 family_index = item["name"].split('/')[0]
                 if family_index not in res:
-                    res[family_index] = {key: [] for key, _ in benchmark_item.items()}
+                    res[family_index] = {key: []
+                                         for key, _ in benchmark_item.items()}
 
                 for item_key, _ in benchmark_item.items():
                     res[family_index][item_key].append(item[item_key])
@@ -54,18 +58,21 @@ def show_plot(filenames):
                 if item['per_family_instance_index'] > max_x:
                     max_x = item['per_family_instance_index']
 
-            x = [i for i in range(max_x + 1)] # x-axis, threads number
+            x = [i for i in range(max_x + 1)]  # x-axis, threads number
 
             # plot benchmark items
             for key, value in res.items():
                 for item_key, style in benchmark_item.items():
-                    plt.plot(x, value[item_key], marker=style['marker'], linestyle=style['linestyle'], label="[{}] {}:{}".format(label, key, item_key))
+                    plt.plot(x, value[item_key], marker=style['marker'],
+                             linestyle=style['linestyle'], label="[{}] {}:{}".format(label, key, item_key))
 
             # plot cpu_time acceleration between shared_ptr cpu time and ref_ptr cpu time
             shared_ptr_cpu_time = res['shared_ptr']['real_time']
             ref_ptr_cpu_time = res['ref_ptr']['real_time']
-            acceleration = [shared_ptr_cpu_time[i] / ref_ptr_cpu_time[i] for i in range(len(x))]
-            plt.plot(x, acceleration, marker='o', linestyle='-', label='[{}] acceleration'.format(label))
+            acceleration = [shared_ptr_cpu_time[i] /
+                            ref_ptr_cpu_time[i] for i in range(len(x))]
+            plt.plot(x, acceleration, marker='o', linestyle='-',
+                     label='[{}] acceleration'.format(label))
 
             # plot y = 1 baseline
 
@@ -107,9 +114,11 @@ if __name__ == '__main__':
     # import cpuinfo # install by pip install py-cpuinfo
     # label = platform.system() + "_" + cpuinfo.get_cpu_info()["brand_raw"].replace(' ', '_')   # compiler info makes more sense
     label = platform.system()
-    output_filename = os.path.join('bench_result', '{}_result.json'.format(label))
+    output_filename = os.path.join(
+        'bench_result', '{}_result.json'.format(label))
 
-    param = "--benchmark_out={} --benchmark_out_format=json --benchmark_time_unit=s".format(output_filename)
+    param = "--benchmark_out={} --benchmark_out_format=json --benchmark_time_unit=s".format(
+        output_filename)
     # check if os is windows
     if os.name == 'nt':
         os.system('build\\Release\\concurrency_bench.exe {}'.format(param))
