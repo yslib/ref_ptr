@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <mutex>
+#include <new>
 #include <type_traits>
 
 #define USE_VIRTUAL_GETTER
@@ -183,8 +184,10 @@ private:
   // std::atomic_size_t _cnt = {1};
   // std::atomic_size_t _weak_cnt = {0};
 
-  std::atomic<typename base_type::size_type> _cnt = {1};
-  std::atomic<typename base_type::size_type> _weak_cnt = {0};
+  alignas(std::hardware_destructive_interference_size)
+      std::atomic<typename base_type::size_type> _cnt = {1};
+  alignas(std::hardware_destructive_interference_size)
+      std::atomic<typename base_type::size_type> _weak_cnt = {0};
 
   static size_t constexpr BUFSIZE =
       sizeof(ObjectWrapper<Interface, IAlloc>) / sizeof(size_t);
@@ -193,7 +196,9 @@ private:
 
   using Lock = EmptyLock;
   Lock _mtx;
-  std::atomic<EObjectState> _object_state;
+  alignas(std::hardware_destructive_interference_size)
+      std::atomic<EObjectState> _object_state;
+
   // EObjectState _object_state{EObjectState::UNINITIALIZED};
 
   // using Lock = std::mutex;
