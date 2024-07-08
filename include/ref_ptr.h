@@ -493,7 +493,7 @@ inline ObjectType *vm_make(AllocatorType *alloc, Args &&...args) {
 
 template <typename ObjectType, typename Interface, typename AllocatorType,
           typename RefCounterType = RefCntImpl<Interface>, typename... Args>
-inline ref_ptr<ObjectType> vm_make_ptr(AllocatorType *alloc, Args &&...args) {
+inline ref_ptr<ObjectType> make_ref_ptr(AllocatorType *alloc, Args &&...args) {
   return ref_ptr<ObjectType>(
       vm_make<ObjectType, Interface, AllocatorType, RefCounterType>(
           alloc, std::forward<Args>(args)...));
