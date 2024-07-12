@@ -8,6 +8,18 @@
 
 #define USE_VIRTUAL_GETTER
 
+// #ifdef __cpp_lib_hardware_interference_size
+// using std::hardware_constructive_interference_size;
+// using std::hardware_destructive_interference_size;
+// #else
+// // 64 bytes on x86-64  L1_CACHE_BYTES  L1_CACHE_SHIFT  __cacheline_aligned
+// ... constexpr std::size_t hardware_constructive_interference_size = 64;
+// constexpr std::size_t hardware_destructive_interference_size = 64;
+// #endif
+
+constexpr std::size_t hardware_constructive_interference_size = 64;
+constexpr std::size_t hardware_destructive_interference_size = 64;
+
 template <typename Interface> class IRefCnt {
 public:
   using object_type = Interface;
@@ -124,6 +136,21 @@ public:
 #endif
   }
 
+  template <typename ManagedObjectType, typename AllocatorType>
+  RefCntImpl(AllocatorType *allocator, ManagedObjectType *obj) {
+
+    using wrapper_type = ObjectWrapper<ManagedObjectType, AllocatorType>;
+    new (_object_buf) wrapper_type(obj, allocator);
+    _object_state = EObjectState::ALIVE;
+
+#ifndef USE_VIRTUAL_GETTER
+    auto objWrapper = reinterpret_cast<ObjectWrapperBase *>(_object_buf);
+    // replace virtual function by function pointer
+    objWrapper->fptr_object =
+        typename ObjectWrapperBase::object_fptr_t(f_object<wrapper_type>);
+#endif
+  }
+
   size_type ref() override final { return _cnt++; }
 
   size_type deref() override final {
@@ -184,9 +211,9 @@ private:
   // std::atomic_size_t _cnt = {1};
   // std::atomic_size_t _weak_cnt = {0};
 
-  alignas(std::hardware_destructive_interference_size)
+  alignas(hardware_destructive_interference_size)
       std::atomic<typename base_type::size_type> _cnt = {1};
-  alignas(std::hardware_destructive_interference_size)
+  alignas(hardware_destructive_interference_size)
       std::atomic<typename base_type::size_type> _weak_cnt = {0};
 
   static size_t constexpr BUFSIZE =
@@ -196,7 +223,7 @@ private:
 
   using Lock = EmptyLock;
   Lock _mtx;
-  alignas(std::hardware_destructive_interference_size)
+  alignas(hardware_destructive_interference_size)
       std::atomic<EObjectState> _object_state;
 
   // EObjectState _object_state{EObjectState::UNINITIALIZED};
@@ -402,9 +429,18 @@ public:
   typename T::refcnt_type *cnt{nullptr};
   using element_type = T;
 
+  obs_ptr() noexcept : cnt(nullptr) {}
+
   template <typename U> obs_ptr(const ref_ptr<U> &ref) noexcept {
     if (ref.obj) {
       cnt = ref.obj->cnt();
+      cnt->weak_ref();
+    }
+  }
+
+  template <typename U> obs_ptr(U *ptr) noexcept {
+    if (ptr) {
+      cnt = ptr->cnt();
       cnt->weak_ref();
     }
   }
@@ -439,6 +475,7 @@ public:
       cnt = o.cnt;
       o.cnt = nullptr;
     }
+    return *this;
   }
 
   template <typename U> obs_ptr &operator=(obs_ptr<U> &&o) noexcept {
